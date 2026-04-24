@@ -1,0 +1,655 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>360 Panorama Viewer - Improved Zoom</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b0d10;
+      --panel: rgba(18, 22, 28, 0.82);
+      --text: #f4f7fb;
+      --muted: #aeb8c6;
+      --line: rgba(255, 255, 255, 0.14);
+      --shadow: 0 18px 60px rgba(0,0,0,0.35);
+      --radius: 18px;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: var(--bg);
+      color: var(--text);
+      font-family:
+        system-ui,
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        sans-serif;
+      touch-action: none;
+    }
+
+    body { overscroll-behavior: none; }
+
+    #app {
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(circle at 30% 25%, rgba(110, 168, 255, 0.18), transparent 36%),
+        radial-gradient(circle at 70% 80%, rgba(157, 110, 255, 0.16), transparent 38%),
+        var(--bg);
+    }
+
+    #viewer {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+      outline: none;
+      cursor: grab;
+      touch-action: none;
+    }
+
+    #viewer:active { cursor: grabbing; }
+
+    .topbar {
+      position: fixed;
+      z-index: 10;
+      top: max(14px, env(safe-area-inset-top));
+      left: max(14px, env(safe-area-inset-left));
+      right: max(14px, env(safe-area-inset-right));
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      pointer-events: none;
+    }
+
+    .brand,
+    .toolbar,
+    .drop-panel,
+    .message {
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+      background: var(--panel);
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+    }
+
+    .brand {
+      min-width: 0;
+      padding: 12px 14px;
+      border-radius: var(--radius);
+      pointer-events: auto;
+    }
+
+    .brand h1 {
+      margin: 0;
+      font-size: 15px;
+      line-height: 1.2;
+      letter-spacing: 0.02em;
+    }
+
+    .brand p {
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.25;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: min(52vw, 560px);
+    }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px;
+      border-radius: 999px;
+      pointer-events: auto;
+    }
+
+    button,
+    .file-button {
+      appearance: none;
+      border: 1px solid rgba(255,255,255,0.14);
+      background: rgba(255,255,255,0.08);
+      color: var(--text);
+      border-radius: 999px;
+      min-height: 40px;
+      padding: 0 14px;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 650;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      cursor: pointer;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    button:hover,
+    .file-button:hover {
+      background: rgba(255,255,255,0.14);
+    }
+
+    button:active,
+    .file-button:active {
+      transform: translateY(1px);
+    }
+
+    button.icon {
+      width: 40px;
+      padding: 0;
+      font-size: 18px;
+    }
+
+    input[type="file"] {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .drop-panel {
+      position: fixed;
+      z-index: 8;
+      left: 50%;
+      top: 50%;
+      width: min(540px, calc(100vw - 32px));
+      transform: translate(-50%, -50%);
+      padding: 28px;
+      border-radius: 24px;
+      text-align: center;
+      transition: opacity 180ms ease, transform 180ms ease;
+      pointer-events: auto;
+    }
+
+    .drop-panel.hidden {
+      opacity: 0;
+      transform: translate(-50%, -48%) scale(0.98);
+      pointer-events: none;
+    }
+
+    .drop-icon {
+      width: 74px;
+      height: 74px;
+      margin: 0 auto 16px;
+      border-radius: 24px;
+      display: grid;
+      place-items: center;
+      background: rgba(110, 168, 255, 0.16);
+      border: 1px solid rgba(110, 168, 255, 0.35);
+      font-size: 34px;
+    }
+
+    .drop-panel h2 {
+      margin: 0 0 8px;
+      font-size: clamp(22px, 4.8vw, 34px);
+      line-height: 1.1;
+      letter-spacing: -0.04em;
+    }
+
+    .drop-panel p {
+      margin: 0 auto 18px;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.65;
+      max-width: 430px;
+    }
+
+    .hint-list {
+      display: grid;
+      gap: 8px;
+      margin-top: 18px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .message {
+      position: fixed;
+      z-index: 12;
+      left: 50%;
+      bottom: max(18px, env(safe-area-inset-bottom));
+      transform: translateX(-50%);
+      max-width: min(840px, calc(100vw - 28px));
+      padding: 12px 14px;
+      border-radius: 999px;
+      color: var(--text);
+      font-size: 13px;
+      line-height: 1.35;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 160ms ease, transform 160ms ease;
+    }
+
+    .message.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(-4px);
+    }
+
+    .message.error {
+      border-color: rgba(255,112,112,0.45);
+      color: #ffd6d6;
+    }
+
+    .drag-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 11;
+      display: none;
+      place-items: center;
+      background: rgba(8, 12, 18, 0.62);
+      border: 3px dashed rgba(110, 168, 255, 0.74);
+      pointer-events: none;
+      font-size: clamp(20px, 5vw, 42px);
+      font-weight: 800;
+      letter-spacing: -0.04em;
+    }
+
+    .drag-overlay.show { display: grid; }
+
+    @media (max-width: 720px) {
+      .topbar { align-items: stretch; }
+
+      .brand {
+        flex: 1 1 auto;
+        padding: 10px 12px;
+      }
+
+      .brand h1 { font-size: 13px; }
+
+      .brand p {
+        max-width: 42vw;
+        font-size: 11px;
+      }
+
+      .toolbar {
+        gap: 6px;
+        padding: 6px;
+      }
+
+      button,
+      .file-button {
+        min-height: 38px;
+        padding: 0 11px;
+        font-size: 12px;
+      }
+
+      button.icon { width: 38px; }
+
+      .drop-panel { padding: 24px 18px; }
+    }
+  </style>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.182.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.182.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="app">
+    <canvas id="viewer" aria-label="360 panorama viewer"></canvas>
+
+    <div class="topbar">
+      <div class="brand">
+        <h1>360 Panorama Viewer</h1>
+        <p id="statusText">ローカルの360度画像を選択してください</p>
+      </div>
+
+      <div class="toolbar" aria-label="viewer controls">
+        <label class="file-button">
+          <span>画像を選択</span>
+          <input id="fileInput" type="file" accept="image/*" />
+        </label>
+        <button id="resetButton" class="icon" title="表示をリセット" aria-label="表示をリセット">↺</button>
+        <button id="fullscreenButton" class="icon" title="フルスクリーン" aria-label="フルスクリーン">⛶</button>
+      </div>
+    </div>
+
+    <section id="dropPanel" class="drop-panel">
+      <div class="drop-icon">🌐</div>
+      <h2>360度画像を表示</h2>
+      <p>
+        正距円筒図法、つまり横:縦が2:1の360度画像を読み込めます。
+        画像はブラウザ内で処理され、サーバーへ送信されません。
+      </p>
+      <label class="file-button">
+        <span>ローカル画像を選択</span>
+        <input id="fileInputLarge" type="file" accept="image/*" />
+      </label>
+      <div class="hint-list">
+        <div>PC: ドラッグで回転 / ホイールでズーム</div>
+        <div>スマホ: 1本指で回転 / 2本指ピンチでズーム</div>
+        <div>画像ファイルをこのページへドラッグ＆ドロップしても読み込めます</div>
+      </div>
+    </section>
+
+    <div id="dragOverlay" class="drag-overlay">ここに画像をドロップ</div>
+    <div id="message" class="message" role="status" aria-live="polite"></div>
+  </div>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+    const canvas = document.getElementById('viewer');
+    const fileInput = document.getElementById('fileInput');
+    const fileInputLarge = document.getElementById('fileInputLarge');
+    const resetButton = document.getElementById('resetButton');
+    const fullscreenButton = document.getElementById('fullscreenButton');
+    const dropPanel = document.getElementById('dropPanel');
+    const dragOverlay = document.getElementById('dragOverlay');
+    const statusText = document.getElementById('statusText');
+    const messageEl = document.getElementById('message');
+
+    const DEFAULT_FOV = 75;
+    const MIN_FOV = 30;
+    const MAX_FOV = 100;
+    const WHEEL_ZOOM_SPEED = 0.04;
+    const PINCH_SENSITIVITY = 0.06;
+
+    const scene = new THREE.Scene();
+
+    const camera = new THREE.PerspectiveCamera(
+      DEFAULT_FOV,
+      window.innerWidth / window.innerHeight,
+      0.1,
+      1100
+    );
+    camera.position.set(0, 0, 0.01);
+
+    const renderer = new THREE.WebGLRenderer({
+      canvas,
+      antialias: true,
+      powerPreference: 'high-performance'
+    });
+
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight, false);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+    const geometry = new THREE.SphereGeometry(500, 96, 64);
+    geometry.scale(-1, 1, 1);
+
+    const placeholderTexture = createPlaceholderTexture();
+    const material = new THREE.MeshBasicMaterial({ map: placeholderTexture });
+    const sphere = new THREE.Mesh(geometry, material);
+    scene.add(sphere);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.08;
+    controls.enablePan = false;
+    controls.enableZoom = false;   // 重要: 距離ズームを無効化し、FOVズームに切り替える
+    controls.rotateSpeed = -0.35;
+    controls.target.set(0, 0, 0);
+    controls.update();
+
+    let currentObjectUrl = null;
+    let messageTimer = null;
+    let pinchStartDistance = null;
+    let pinchStartFov = null;
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function setFov(nextFov) {
+      camera.fov = clamp(nextFov, MIN_FOV, MAX_FOV);
+      camera.updateProjectionMatrix();
+    }
+
+    function getTouchDistance(touch1, touch2) {
+      const dx = touch1.clientX - touch2.clientX;
+      const dy = touch1.clientY - touch2.clientY;
+      return Math.hypot(dx, dy);
+    }
+
+    function createPlaceholderTexture() {
+      const size = 1024;
+      const c = document.createElement('canvas');
+      c.width = size * 2;
+      c.height = size;
+      const ctx = c.getContext('2d');
+
+      const grad = ctx.createLinearGradient(0, 0, c.width, c.height);
+      grad.addColorStop(0, '#172034');
+      grad.addColorStop(0.45, '#0b0d10');
+      grad.addColorStop(1, '#241735');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, c.width, c.height);
+
+      ctx.strokeStyle = 'rgba(255,255,255,0.14)';
+      ctx.lineWidth = 2;
+
+      for (let x = 0; x <= c.width; x += c.width / 16) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, c.height);
+        ctx.stroke();
+      }
+
+      for (let y = 0; y <= c.height; y += c.height / 8) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(c.width, y);
+        ctx.stroke();
+      }
+
+      ctx.fillStyle = 'rgba(255,255,255,0.86)';
+      ctx.font = '700 76px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('360 Panorama Viewer', c.width / 2, c.height / 2 - 34);
+
+      ctx.fillStyle = 'rgba(255,255,255,0.58)';
+      ctx.font = '36px system-ui, sans-serif';
+      ctx.fillText('Upload an equirectangular image', c.width / 2, c.height / 2 + 44);
+
+      const texture = new THREE.CanvasTexture(c);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      return texture;
+    }
+
+    function showMessage(text, type = 'info') {
+      messageEl.textContent = text;
+      messageEl.classList.toggle('error', type === 'error');
+      messageEl.classList.add('show');
+
+      clearTimeout(messageTimer);
+      messageTimer = setTimeout(() => {
+        messageEl.classList.remove('show');
+      }, 3800);
+    }
+
+    function resetView() {
+      setFov(DEFAULT_FOV);
+      camera.position.set(0, 0, 0.01);
+      controls.target.set(0, 0, 0);
+      controls.update();
+      showMessage('表示をリセットしました。');
+    }
+
+    function updateTexture(texture) {
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.minFilter = THREE.LinearFilter;
+      texture.magFilter = THREE.LinearFilter;
+      texture.generateMipmaps = false;
+
+      if (material.map) {
+        material.map.dispose();
+      }
+
+      material.map = texture;
+      material.needsUpdate = true;
+    }
+
+    function loadFile(file) {
+      if (!file) return;
+
+      if (!file.type.startsWith('image/')) {
+        showMessage('画像ファイルを選択してください。', 'error');
+        return;
+      }
+
+      const objectUrl = URL.createObjectURL(file);
+
+      const img = new Image();
+      img.onload = () => {
+        const ratio = img.width / img.height;
+        if (Math.abs(ratio - 2) > 0.18) {
+          showMessage(`読み込みました。ただし画像比率が ${img.width}:${img.height} です。360度画像は通常2:1です。`, 'error');
+        } else {
+          showMessage(`読み込み完了: ${file.name}`);
+        }
+      };
+      img.src = objectUrl;
+
+      new THREE.TextureLoader().load(
+        objectUrl,
+        (texture) => {
+          updateTexture(texture);
+
+          if (currentObjectUrl) {
+            URL.revokeObjectURL(currentObjectUrl);
+          }
+          currentObjectUrl = objectUrl;
+
+          statusText.textContent = `${file.name} / ${(file.size / 1024 / 1024).toFixed(1)} MB`;
+          dropPanel.classList.add('hidden');
+          setFov(DEFAULT_FOV);
+        },
+        undefined,
+        () => {
+          URL.revokeObjectURL(objectUrl);
+          showMessage('画像を読み込めませんでした。別の画像で試してください。', 'error');
+        }
+      );
+    }
+
+    function handleInputChange(event) {
+      loadFile(event.target.files && event.target.files[0]);
+      event.target.value = '';
+    }
+
+    fileInput.addEventListener('change', handleInputChange);
+    fileInputLarge.addEventListener('change', handleInputChange);
+
+    resetButton.addEventListener('click', resetView);
+
+    fullscreenButton.addEventListener('click', async () => {
+      try {
+        if (!document.fullscreenElement) {
+          await document.documentElement.requestFullscreen();
+        } else {
+          await document.exitFullscreen();
+        }
+      } catch {
+        showMessage('このブラウザではフルスクリーンを開始できませんでした。', 'error');
+      }
+    });
+
+    // PCホイールズーム: FOV変更方式
+    canvas.addEventListener('wheel', (event) => {
+      event.preventDefault();
+      setFov(camera.fov + event.deltaY * WHEEL_ZOOM_SPEED);
+    }, { passive: false });
+
+    // スマホピンチズーム: FOV変更方式
+    canvas.addEventListener('touchstart', (event) => {
+      if (event.touches.length === 2) {
+        pinchStartDistance = getTouchDistance(event.touches[0], event.touches[1]);
+        pinchStartFov = camera.fov;
+      }
+    }, { passive: true });
+
+    canvas.addEventListener('touchmove', (event) => {
+      if (event.touches.length === 2 && pinchStartDistance && pinchStartFov) {
+        event.preventDefault();
+        const currentDistance = getTouchDistance(event.touches[0], event.touches[1]);
+        const delta = currentDistance - pinchStartDistance;
+        const nextFov = pinchStartFov - delta * PINCH_SENSITIVITY;
+        setFov(nextFov);
+      }
+    }, { passive: false });
+
+    canvas.addEventListener('touchend', (event) => {
+      if (!event.touches || event.touches.length < 2) {
+        pinchStartDistance = null;
+        pinchStartFov = null;
+      }
+    });
+
+    canvas.addEventListener('touchcancel', () => {
+      pinchStartDistance = null;
+      pinchStartFov = null;
+    });
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      renderer.setSize(window.innerWidth, window.innerHeight, false);
+    });
+
+    let dragDepth = 0;
+
+    window.addEventListener('dragenter', (event) => {
+      event.preventDefault();
+      dragDepth += 1;
+      dragOverlay.classList.add('show');
+    });
+
+    window.addEventListener('dragover', (event) => {
+      event.preventDefault();
+    });
+
+    window.addEventListener('dragleave', (event) => {
+      event.preventDefault();
+      dragDepth = Math.max(0, dragDepth - 1);
+      if (dragDepth === 0) {
+        dragOverlay.classList.remove('show');
+      }
+    });
+
+    window.addEventListener('drop', (event) => {
+      event.preventDefault();
+      dragDepth = 0;
+      dragOverlay.classList.remove('show');
+      const file = event.dataTransfer.files && event.dataTransfer.files[0];
+      loadFile(file);
+    });
+
+    window.addEventListener('beforeunload', () => {
+      if (currentObjectUrl) {
+        URL.revokeObjectURL(currentObjectUrl);
+      }
+    });
+
+    function animate() {
+      controls.update();
+      renderer.render(scene, camera);
+      requestAnimationFrame(animate);
+    }
+
+    animate();
+  </script>
+</body>
+</html>
