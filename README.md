@@ -19,7 +19,7 @@
 
 ## Demo
 
-GitHub Pages で公開した[デモページ](https://your-username.github.io/360-panorama-viewer/)からすぐに試せます。
+GitHub Pages で公開した[デモページ](https://mssmat.github.io/Simple-360-Panorama-Viewer/)からすぐに試せます。
 
 ページを開き、「画像を選択」からローカルの360度画像を読み込んでください。
 
